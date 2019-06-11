@@ -208,8 +208,14 @@ void LogFileObject::write(bool flush, QByteArray &msg){
                            << QDateTime::currentDateTime().toString("yyyy/MM/dd hh:mm:ss")<< endl
                            << "Running on machine: "
                            << hostname_.c_str() << endl
-                           << "Log line format: [DIWEF]mmdd hh:mm:ss.zzz "
-                           << "threadid file:line] msg" << endl;
+                           << "Log line format: [DIWEF]mmdd hh:mm:ss.zzz ";
+        if(qtlog::richText){
+            file_header_stream<<"threadid](file:line _function) msg" << endl;
+        }
+        else{
+            file_header_stream<<"threadid] msg" << endl;
+        }
+
         file_header_stream.flush();
         const int header_len = static_cast<int>(file_header_string.size());
         file_->write(file_header_string.data(),header_len);
@@ -463,17 +469,19 @@ void outputMessage(QtMsgType type, const QMessageLogContext &context, const QStr
     message.append(LogSeverityNames[severity][0]).
             append(current_date_time).
             append(" ").
-            append(threadid.toUpper().toUtf8()).
-            append("] ");
+            append(threadid.toUpper().toUtf8());
 
     if(qtlog::richText == true){
-        message.append("(").
+        message.append("](").
                 append(context.file).
                 append(":").
                 append(QString("%1").arg(context.line)).
                 append(" ").
                 append(context.function).
                 append(") ");
+    }
+    else{
+        message.append("] ");
     }
     message.append(msg);
 
@@ -492,7 +500,11 @@ void qtlog::qInstallHandlers(){
     qInstallMessageHandler(outputMessage);
 
 #ifdef Q_OS_WIN
+
+#ifdef QT_DEBUG
+    /// debug 模式下支持dump捕获
     SetUnhandledExceptionFilter(reinterpret_cast<LPTOP_LEVEL_EXCEPTION_FILTER>(Application_CrashHandler)); //注冊异常捕获函数
+#endif
 #elif Q_OS_LINUX
 
 #endif

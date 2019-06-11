@@ -11,7 +11,6 @@ const char*const LogSeverityNames[NUM_SEVERITIES] = {
     "DEBUG","INFO", "WARNING", "ERROR", "FATAL"
 };
 
-/** dump文件地址 */
 static QString dump_path;
 
 static bool DayHasChanged( qint32 &day)
@@ -32,7 +31,7 @@ static bool DayHasChanged( qint32 &day)
 }
 
 static quint32 MaxLogSize(){
-    return (g_max_log_size > 0 ? g_max_log_size : 1);
+    return (g_max_log_size > 0 ? g_max_log_size : 10);
 }
 
 static qint64 CycleClock_Now(){
@@ -42,7 +41,7 @@ static qint64 CycleClock_Now(){
 
 static void GetHostName(std::string* hostname) {
 #if defined(Q_OS_LINUX)
-    ///todo
+    /// todo
 #elif defined(Q_OS_WIN)
     char buf[MAX_COMPUTERNAME_LENGTH + 1];
     DWORD len = MAX_COMPUTERNAME_LENGTH + 1;
@@ -57,10 +56,6 @@ static void GetHostName(std::string* hostname) {
 #endif
 }
 
-/**
- * @brief The LogFileObject class
- * @details 写日志文件类
- */
 class LogFileObject{
 
 public:
@@ -89,11 +84,6 @@ private:
     bool createLogfile(QString &base_filename);
 };
 
-/**
- * @brief The LogDestination class
- * @details 文件目标地址管理类移植glog,根据日志等级分类方式，此处保留方法
- * @note 单例模式
- */
 class LogDestination{
 public:
     static void setCategoryMode(bool mode);
@@ -173,12 +163,11 @@ void LogFileObject::setBasename(QString &basename){
 
 void LogFileObject::write(bool flush, QByteArray &msg){
     QMutexLocker locker(&mutex_);
-    /** 地址设置为空时,说明不用输出, */
+
     if(base_filename_selected_&&base_filename_.isEmpty()){
         return;
     }
 
-    /** 判断日志文件是否过大 */
     if ( (file_length_ >> 20) >= MaxLogSize() || DayHasChanged(day_) ) {
         if (file_){
             file_->close();
@@ -216,11 +205,17 @@ void LogFileObject::write(bool flush, QByteArray &msg){
 
         // Write a header message into the log file
         file_header_stream << "Log file created at: "
-                           << QDateTime::currentDateTime().toString("yyyy/MM/dd hh:mm:ss")
+                           << QDateTime::currentDateTime().toString("yyyy/MM/dd hh:mm:ss")<< endl
                            << "Running on machine: "
                            << hostname_.c_str() << endl
-                           << "Log line format: [DIWEF]mmdd hh:mm:ss.zzz "
-                           << "threadid file:line] msg" << endl;
+                           << "Log line format: [DIWEF]mmdd hh:mm:ss.zzz ";
+        if(qtlog::richText){
+            file_header_stream<<"threadid](file:line _function) msg" << endl;
+        }
+        else{
+            file_header_stream<<"threadid] msg" << endl;
+        }
+
         file_header_stream.flush();
         const int header_len = static_cast<int>(file_header_string.size());
         file_->write(file_header_string.data(),header_len);
@@ -232,7 +227,7 @@ void LogFileObject::write(bool flush, QByteArray &msg){
     /** 磁盘是否满 */
     if(!stop_writing){
         file_->write(msg);
-        /** 判断磁盘是否已满 */
+        /** 判断磁盘是否已满，待完善，默认不会满 */
         bool diskfull = false;   /// todo
         if(diskfull){
             stop_writing = true;
@@ -246,7 +241,7 @@ void LogFileObject::write(bool flush, QByteArray &msg){
     }
     else{
         if ( CycleClock_Now() >= next_flush_time_ )
-            stop_writing = false;  // check to see if disk has free space.
+            stop_writing = false;  /// check to see if disk has free space.
         return;
     }
 
@@ -348,12 +343,6 @@ bool LogDestination::CategoryMode_ = false;
 
 QString LogDestination::category_base_filename_;
 
-/**
- * @brief LogDestination::log_destinations
- * @param severity
- * @return nullptr LogDestination*
- * @details 存在返回对应指针，不存在返回空指针
- */
 inline LogDestination* LogDestination::log_destinations(LogSeverity severity){
     if(!log_destinations_[severity]){
         QString null;
@@ -417,8 +406,6 @@ void LogDestination::flushAllLogs()
 }
 
 inline void LogDestination::maybeLogToLogfile(LogSeverity severity,QByteArray &msg, QByteArray &category){
-    //const bool should_flush = severity > FLAGS_logbuflevel;
-
     LogDestination* destination;
     if(LogDestination::CategoryMode_)
         destination = log_destinations(category);
@@ -426,9 +413,7 @@ inline void LogDestination::maybeLogToLogfile(LogSeverity severity,QByteArray &m
         destination = log_destinations(severity);
     }
     destination->fileobject_.write(should_flush,msg);
-
 }
-
 
 qtlog::qtlog(QObject *parent) : QObject(parent)
 {
@@ -484,11 +469,10 @@ void outputMessage(QtMsgType type, const QMessageLogContext &context, const QStr
     message.append(LogSeverityNames[severity][0]).
             append(current_date_time).
             append(" ").
-            append(threadid.toUpper().toUtf8()).
-            append("] ");
+            append(threadid.toUpper().toUtf8());
 
     if(qtlog::richText == true){
-        message.append("(").
+        message.append("](").
                 append(context.file).
                 append(":").
                 append(QString("%1").arg(context.line)).
@@ -496,10 +480,13 @@ void outputMessage(QtMsgType type, const QMessageLogContext &context, const QStr
                 append(context.function).
                 append(") ");
     }
+    else{
+        message.append("] ");
+    }
     message.append(msg);
 
 
-
+    /** 增加间隔行 */
 #ifdef Q_OS_WIN
     message.append("\r\n\r\n");
 #elif Q_OS_LINUX
@@ -509,11 +496,15 @@ void outputMessage(QtMsgType type, const QMessageLogContext &context, const QStr
 
 }
 
-/** qtlog 静态函数,全局配置接口 */
 void qtlog::qInstallHandlers(){
     qInstallMessageHandler(outputMessage);
+
 #ifdef Q_OS_WIN
+
+#ifdef QT_DEBUG
+    /// debug 模式下支持dump捕获
     SetUnhandledExceptionFilter(reinterpret_cast<LPTOP_LEVEL_EXCEPTION_FILTER>(Application_CrashHandler)); //注冊异常捕获函数
+#endif
 #elif Q_OS_LINUX
 
 #endif
@@ -528,10 +519,12 @@ void qtlog::setqtCategoryModeLogDestination(QString &pathdir)
     LogDestination::setLogDestination(pathdir);
 }
 
+#if (QT_VERSION > QT_VERSION_CHECK(5,3,0))
 void qtlog::setqtLogEnv(QByteArray &file)
 {
     qputenv("QT_LOGGING_CONF", file);
 }
+#endif
 
 void qtlog::setqtLogMaxSize(quint32 size)
 {
@@ -595,7 +588,7 @@ LONG Application_CrashHandler(EXCEPTION_POINTERS *pException){
     QString printfstring = "errCode: "+errCode+"\r\n"+"errAdr: "+errAdr+"\r\n";
     printfstring = printfstring+QString("Fatal failure occurred, refer to dump/%1.dmp").arg(current_date_time);
     QLoggingCategory Category("dump");
-    //qCCritical(Category)<<printfstring.toLatin1().data();
+    qCCritical(Category)<<printfstring.toLatin1().data();
 
     return EXCEPTION_EXECUTE_HANDLER;
 }

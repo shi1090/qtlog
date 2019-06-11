@@ -138,5 +138,6 @@ int main(int argc, char *argv[])
     qCCritical(Category)<<"Category->socket.Msg log error";
 
 
+
     return a.exec();
 }
