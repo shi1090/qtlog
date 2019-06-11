@@ -26,4 +26,4 @@ QLoggingCategory Category("msg.socket.105102")
 本组件采用QT_LOGGING_CONF环境变量配置方式，具体使用方式查看demo，配置完成后，后期可根据需求在配置文件中开启或关闭相关规则
 
 ## dump捕获
-支持windows下dump捕获，程序崩溃生成最小dump记录，保存到指定文件夹下
+支持windows下debug模式下dump捕获，程序崩溃生成最小dump记录，保存到指定文件夹下
