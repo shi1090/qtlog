@@ -1,8 +1,10 @@
 ﻿#ifndef QTLOG_H
 #define QTLOG_H
 
-#if defined(_MSC_VER) >= 1600
+#ifdef _WIN32
+#if _MSC_VER >= 1600
 #pragma execution_character_set("UTF-8")
+#endif
 #endif
 
 #include <QObject>
