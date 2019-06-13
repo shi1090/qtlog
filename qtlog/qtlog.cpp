@@ -41,7 +41,14 @@ static qint64 CycleClock_Now(){
 
 static void GetHostName(std::string* hostname) {
 #if defined(Q_OS_LINUX)
-    /// todo
+    char hostname_[60] = {0};
+    int res = gethostname(hostname_,sizeof(hostname_));
+    if(res == 0){
+        hostname->append(hostname_);
+    }
+    else{
+        *hostname = "(unknown)";
+    }
 #elif defined(Q_OS_WIN)
     char buf[MAX_COMPUTERNAME_LENGTH + 1];
     DWORD len = MAX_COMPUTERNAME_LENGTH + 1;
@@ -283,14 +290,18 @@ bool LogFileObject::createLogfile(QString &base_filename){
     QDir basedir(base_filename_);
     if(!basedir.exists()){
         basedir.mkpath(base_filename_);
+
     }
     QString base_datefilename;
 
     base_datefilename = base_filename_;
 
     // 程序PID
+#if defined (Q_OS_WIN)
     QString pid = QString("%1.").arg(_getpid(),8,16,QLatin1Char('0')).toUpper();
-
+#elif defined (Q_OS_LINUX)
+    QString pid = QString("%1.").arg(getpid(),8,16,QLatin1Char('0')).toUpper();
+#endif
     // 格式说明
     base_datefilename
             .append(QDateTime::currentDateTime().toString("yyyyMMdd-hhmmss"))
@@ -489,8 +500,8 @@ void outputMessage(QtMsgType type, const QMessageLogContext &context, const QStr
     /** 增加间隔行 */
 #ifdef Q_OS_WIN
     message.append("\r\n\r\n");
-#elif Q_OS_LINUX
-    message.append("\r\r");
+#elif defined(Q_OS_LINUX)
+    message.append("\n\n");
 #endif
     LogDestination::LogToAllLogfiles(severity,message,category);
 
@@ -505,7 +516,7 @@ void qtlog::qInstallHandlers(){
     /// debug 模式下支持dump捕获
     SetUnhandledExceptionFilter(reinterpret_cast<LPTOP_LEVEL_EXCEPTION_FILTER>(Application_CrashHandler)); //注冊异常捕获函数
 #endif
-#elif Q_OS_LINUX
+#elif defined(Q_OS_LINUX)
 
 #endif
 }
@@ -592,6 +603,6 @@ LONG Application_CrashHandler(EXCEPTION_POINTERS *pException){
 
     return EXCEPTION_EXECUTE_HANDLER;
 }
-#elif Q_OS_LINUX
+#elif defined(Q_OS_LINUX)
 
 #endif

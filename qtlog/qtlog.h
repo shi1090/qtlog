@@ -1,7 +1,7 @@
 ﻿#ifndef QTLOG_H
 #define QTLOG_H
 
-#if _MSC_VER >= 1600
+#if defined(_MSC_VER) >= 1600
 #pragma execution_character_set("UTF-8")
 #endif
 
@@ -18,6 +18,9 @@
 
 #ifdef _WIN32
 #include <process.h>
+#include "Windows.h"
+#include <DbgHelp.h>
+LONG Application_CrashHandler(EXCEPTION_POINTERS *pException);
 #else
 #include <unistd.h>
 #endif
@@ -31,14 +34,6 @@ typedef int LogSeverity;
 #define QFATAL   4
 
 #define NUM_SEVERITIES  5
-
-#ifdef Q_OS_WIN
-#include "Windows.h"
-#include <DbgHelp.h>
-LONG Application_CrashHandler(EXCEPTION_POINTERS *pException);
-#elif Q_OS_LINUX
-
-#endif
 
 void outputMessage(QtMsgType type, const QMessageLogContext &context, const QString &msg);
 
