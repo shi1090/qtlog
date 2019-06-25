@@ -128,7 +128,7 @@ public:
      */
     static void flushqtLogNow();
 
-    /** 是否详细打印，包含行号等，只在调试-d模式下支持 */
+    /** 是否详细打印，包含行号等 */
     static bool richText;
 
 
