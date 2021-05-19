@@ -133,7 +133,7 @@ int main(int argc, char *argv[])
     qtlog::setdumpPath(dumppath);
 
     qtlog::qInstallHandlers();
-    qDebug()<<"测试 ";
+    qDebug()<<u8"测试 ";
 
     /** 不配置时默认Category为defult */
     qDebug()<<"log debug";
