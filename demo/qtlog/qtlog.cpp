@@ -4,17 +4,11 @@
 #include <qlogging.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <QIODevice>
+#include <QFile>
 
 #ifdef Q_OS_WIN
 #include<windows.h>
 #endif
-
-#ifdef Q_OS_UNIX
-# include <syslog.h>
-#endif
-
-
 
 #ifdef Q_OS_UNIX
 #include <sys/types.h>
@@ -155,7 +149,7 @@ static bool unix_message_handler(QtMsgType type,
     }
     return true; // Prevent further output to stderr
 }
-#endif //Q_OS_ANDROID
+#endif
 #ifdef Q_OS_WIN
 static bool win_message_handler(QtMsgType type, const QMessageLogContext &context, const QString &message)
 {
@@ -589,11 +583,6 @@ static void outputMessage(QtMsgType type, const QMessageLogContext &context, con
 
     if(is_to_console){
         bool handledStderr = false;
-        // A message sink logs the message to a structured or unstructured destination,
-        // optionally formatting the message if the latter, and returns true if the sink
-        // handled stderr output as well, which will shortcut our default stderr output.
-        // In the future, if we allow multiple/dynamic sinks, this will be iterating
-        // a list of sinks.
 #if !defined(QT_BOOTSTRAPPED)
 #if defined(Q_OS_WIN)
         handledStderr |= win_message_handler(type, context, msg);
