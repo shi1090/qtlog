@@ -1,18 +1,47 @@
 ﻿#include "qtlog.h"
 #include <QLoggingCategory>
+#include <QtCore/qglobal.h>
+#include <qlogging.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <QIODevice>
 
-bool qtlog::richText = false;
+#ifdef Q_OS_WIN
+#include<windows.h>
+#endif
 
+#ifdef Q_OS_UNIX
+# include <syslog.h>
+#endif
+
+
+
+#ifdef Q_OS_UNIX
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
+#include <fcntl.h>
+#endif
+
+bool fileLine = false;
 static quint32 g_max_log_size = 0;
 static qint64 logbufsecs = 5;
 static bool stop_writing = false;
 static bool should_flush = false;
+static bool is_to_console = true;
 const char*const LogSeverityNames[NUM_SEVERITIES] = {
     "DEBUG","INFO", "WARNING", "ERROR", "FATAL"
 };
 
 static QString dump_path;
 
+/**
+ * @brief DayHasChanged
+ * @param day
+ * @return
+ * @details 此函数多线程使用不安全，调用前确保加锁互斥
+ */
 static bool DayHasChanged( qint32 &day)
 {
     time_t raw_time;
@@ -61,6 +90,96 @@ static void GetHostName(std::string* hostname) {
 # warning There is no way to retrieve the host name.
     *hostname = "(unknown)";
 #endif
+}
+
+static bool systemHasStderr()
+{
+#if defined(Q_OS_WINRT)
+    return false; // WinRT has no stderr
+#endif
+    return true;
+}
+
+static bool stderrHasConsoleAttached()
+{
+    static const bool stderrHasConsoleAttached = []() -> bool {
+        if (!systemHasStderr())
+            return false;
+
+#if defined(Q_OS_WIN) && !defined(Q_OS_WINRT)
+        return GetConsoleWindow();
+#elif defined(Q_OS_UNIX)
+#ifndef _PATH_TTY
+#define _PATH_TTY "/dev/tty"
+#endif
+        // If we can open /dev/tty, we have a controlling TTY
+        QFile device(_PATH_TTY);
+        if(device.open(QIODevice::ReadOnly)){
+            device.close();
+            return true;
+        }
+        else if (errno == ENOENT || errno == EPERM || errno == ENXIO) {
+            // Fall back to isatty for some non-critical errors
+            return isatty(STDERR_FILENO);
+        } else {
+            return false;
+        }
+#else
+        return false; // No way to detect if stderr has a console attached
+#endif
+    }();
+    return stderrHasConsoleAttached;
+}
+
+bool shouldLogToStderr()
+{
+    return stderrHasConsoleAttached();
+}
+
+#if defined(QT_BOOTSTRAPPED)
+// Boostrapped tools always print to stderr, so no need for alternate sinks
+#else
+
+#if defined(Q_OS_UNIX)
+static bool unix_message_handler(QtMsgType type,
+                                 const QMessageLogContext &context,
+                                 const QString &message)
+{
+    if (shouldLogToStderr())
+        return false; // Leave logging up to stderr handler
+    QString formattedMessage = qFormatLogMessage(type, context, message);
+
+    if (!formattedMessage.isNull()){
+        fprintf(stderr, "%s\n", formattedMessage.toLocal8Bit().constData());
+        fflush(stderr);
+    }
+    return true; // Prevent further output to stderr
+}
+#endif //Q_OS_ANDROID
+#ifdef Q_OS_WIN
+static bool win_message_handler(QtMsgType type, const QMessageLogContext &context, const QString &message)
+{
+    if (shouldLogToStderr())
+        return false; // Leave logging up to stderr handler
+    QString formattedMessage = qFormatLogMessage(type, context, message);
+    formattedMessage.append(QLatin1Char('\n'));
+    OutputDebugString(reinterpret_cast<const wchar_t *>(formattedMessage.utf16()));
+    return true; // Prevent further output to stderr
+}
+#endif
+#endif // Bootstrap check
+
+
+// --------------------------------------------------------------------------
+static void stderr_message_handler(QtMsgType type, const QMessageLogContext &context, const QString &message)
+{
+    QString formattedMessage = qFormatLogMessage(type, context, message);
+    // print nothing if message pattern didn't apply / was empty.
+    // (still print empty lines, e.g. because message itself was empty)
+    if (formattedMessage.isNull())
+        return;
+    fprintf(stderr, "%s\n", formattedMessage.toLocal8Bit().constData());
+    fflush(stderr);
 }
 
 class LogFileObject{
@@ -215,8 +334,8 @@ void LogFileObject::write(bool flush, QByteArray &msg){
                            << QDateTime::currentDateTime().toString("yyyy/MM/dd hh:mm:ss")<< endl
                            << "Running on machine: "
                            << hostname_.c_str() << endl
-                           << "Log line format: [DIWEF]mmdd hh:mm:ss.zzz ";
-        if(qtlog::richText){
+                           << "Log line format: [DIWEF]pid hh:mm:ss.zzz ";
+        if(fileLine){
             file_header_stream<<"threadid](file:line _function) msg" << endl;
         }
         else{
@@ -426,7 +545,7 @@ inline void LogDestination::maybeLogToLogfile(LogSeverity severity,QByteArray &m
     destination->fileobject_.write(should_flush,msg);
 }
 
-qtlog::qtlog(QObject *parent) : QObject(parent)
+qtlog::qtlog()
 {
 
 }
@@ -435,90 +554,93 @@ qtlog::~qtlog(){
 
 }
 
-void outputMessage(QtMsgType type, const QMessageLogContext &context, const QString &msg)
+static void outputMessage(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
     QByteArray category(context.category);
 
-    QString type_str;
     LogSeverity severity;
     switch(type)
     {
     case QtDebugMsg:
-        type_str = QString("%1").arg("DEBUG",5);
         severity = 0;
         break;
 
     case QtInfoMsg:
-        type_str = QString("%1").arg("INFO",5);
         severity = 1;
         break;
 
     case QtWarningMsg:
-        type_str = QString("%1").arg("WARN",5);
         severity = 2;
         break;
 
     case QtCriticalMsg:
-        type_str = QString("%1").arg("ERROR",5);
         severity = 3;
         break;
 
     case QtFatalMsg:
-        type_str = QString("%1").arg("FATAL",5);
         severity = 4;
         break;
 
     }
 
-    QString current_date_time = QDateTime::currentDateTime().toString("MMdd hh:mm:ss.zzz");
-
-    // 获取线程ID
-    QString threadid = QString("%1").arg(reinterpret_cast<size_t>(QThread::currentThreadId()),8,16,QLatin1Char('0'));
-
     QByteArray message;
 
-    message.append(LogSeverityNames[severity][0]).
-            append(current_date_time).
-            append(" ").
-            append(threadid.toUpper().toUtf8());
+    /** 打印到控制台 */
 
-    if(qtlog::richText == true){
-        message.append("](").
-                append(context.file).
-                append(":").
-                append(QString("%1").arg(context.line)).
-                append(" ").
-                append(context.function).
-                append(") ");
-    }
-    else{
-        message.append("] ");
-    }
-    message.append(msg);
-
-
-    /** 增加间隔行 */
-#ifdef Q_OS_WIN
-    message.append("\r\n\r\n");
-#elif defined(Q_OS_LINUX)
-    message.append("\n\n");
+    if(is_to_console){
+        bool handledStderr = false;
+        // A message sink logs the message to a structured or unstructured destination,
+        // optionally formatting the message if the latter, and returns true if the sink
+        // handled stderr output as well, which will shortcut our default stderr output.
+        // In the future, if we allow multiple/dynamic sinks, this will be iterating
+        // a list of sinks.
+#if !defined(QT_BOOTSTRAPPED)
+#if defined(Q_OS_WIN)
+        handledStderr |= win_message_handler(type, context, msg);
+#elif defined(Q_OS_UNIX)
+        handledStderr |= unix_message_handler(type, context, msg);
+# endif
 #endif
+
+        if (!handledStderr)
+            stderr_message_handler(type, context, msg);
+    }
+
+    QString str;
+    str = qFormatLogMessage(type,context,msg);
+    str.append("\n");
+    message = str.toLocal8Bit();
+
     LogDestination::LogToAllLogfiles(severity,message,category);
 
 }
 
+
 void qtlog::qInstallHandlers(){
+
+    // 自定义PATTERN
+    QString pattern;
+    pattern.append("[%{if-debug}D%{endif}%{if-info}I%{endif}%{if-warning}W%{endif}%{if-critical}C%{endif}%{if-fatal}F%{endif}")
+            .append("%{pid} %{time h:mm:ss.zzz } %{qthreadptr}]");
+
+    if(fileLine){
+        pattern.append("%{file}:%{line} -");
+    }
+    if(!LogDestination::getCategoryMode()){
+        pattern.append(" %{if-category}%{category}: %{endif}%{message}");
+    }
+    else{
+        pattern.append(" %{message}");
+    }
+
+    qSetMessagePattern(pattern);
+
     qInstallMessageHandler(outputMessage);
 
 #ifdef Q_OS_WIN
-
-#ifdef QT_DEBUG
-    /// debug 模式下支持dump捕获
     SetUnhandledExceptionFilter(reinterpret_cast<LPTOP_LEVEL_EXCEPTION_FILTER>(Application_CrashHandler)); //注冊异常捕获函数
 #endif
-#elif defined(Q_OS_LINUX)
 
-#endif
 }
 
 void qtlog::setqtLogDestination(LogSeverity severity, QString &pathdir){
@@ -557,6 +679,11 @@ void qtlog::setqtLogShouldflush(bool flush)
     should_flush = flush;
 }
 
+void qtlog::setqtLogFileLine(bool fileline)
+{
+    fileLine = fileline;
+}
+
 void qtlog::setdumpPath(QString path)
 {
     dump_path = path;
@@ -565,6 +692,11 @@ void qtlog::setdumpPath(QString path)
 void qtlog::flushqtLogNow()
 {
     LogDestination::flushAllLogs();
+}
+
+void qtlog::setPrintToConsole(bool isPrint)
+{
+    is_to_console = isPrint;
 }
 
 

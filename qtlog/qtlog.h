@@ -3,7 +3,7 @@
 
 #ifdef _WIN32
 #if _MSC_VER >= 1600
-#pragma execution_character_set("UTF-8")
+#pragma execution_character_set(push,"utf-8")
 #endif
 #endif
 
@@ -37,8 +37,6 @@ typedef int LogSeverity;
 
 #define NUM_SEVERITIES  5
 
-void outputMessage(QtMsgType type, const QMessageLogContext &context, const QString &msg);
-
 /**
  * @brief The qtlog class
  * @details qt日志配置纯静态类，配合qt日志引擎，支持两种日志导出方式\n
@@ -49,9 +47,8 @@ void outputMessage(QtMsgType type, const QMessageLogContext &context, const QStr
  * 分类模式下同一Category分类下日志级别不区分文件，统一存放到一个分类日志下。\r\n
  * @note 主要移植修改glog日志库的文件导出类，并结合Qt日志库特点进行功能扩展。
  */
-class qtlog : public QObject
+class qtlog
 {
-    Q_OBJECT
 public:
     /** 注册输出接口函数 */
     static void qInstallHandlers();
@@ -116,6 +113,12 @@ public:
     static void setqtLogShouldflush(bool flush);
 
     /**
+     * @brief setqtLogFileLine
+     * @param rich
+     */
+    static void setqtLogFileLine(bool fileline);
+
+    /**
      * @brief setdumpPath
      * @param path
      * @details dump地址根路径设置
@@ -128,21 +131,14 @@ public:
      */
     static void flushqtLogNow();
 
-    /** 是否详细打印，包含行号等 */
-    static bool richText;
+    /** 是否打印到控制台 */
+    static void setPrintToConsole(bool isPrint);
 
 
 private:
-    explicit qtlog(QObject *parent = nullptr);
+    explicit qtlog();
     ~qtlog();
 
-
-
-
-
-signals:
-
-public slots:
 };
 
 #endif // QT5LOG_H

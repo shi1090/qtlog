@@ -1,7 +1,9 @@
-#include <QCoreApplication>
+﻿#include <QCoreApplication>
 #include "qtlog.h"
+#include <QtDebug>
 #include <QSettings>
 #include <QLoggingCategory>
+
 
 int main(int argc, char *argv[])
 {
@@ -10,7 +12,8 @@ int main(int argc, char *argv[])
     /** 配置qtlog */
     QString logpath;
     QString dumppath;
-    bool rich;
+    bool fileline;
+    bool showConsole;
     quint32 maxSize;
     qint64 secs;
     bool category;
@@ -21,19 +24,14 @@ int main(int argc, char *argv[])
 
     settings_.beginGroup("Rules");
     settings_.setValue("*.debug",true);
-    settings_.setValue("socket.Msg.debug",false);
-    settings_.setValue("socket.Msg.info",false);
-    settings_.setValue("socket.Msg.warning",false);
-    settings_.setValue("socket.Msg.critical",false);
     settings_.endGroup();
-    settings_.sync();
 
     /** 日志分类筛选功能,采用QT_LOGGING_CONF环境变量方式,支持配置文件方式
-     * 此方法Qt官方在Qt5.3以上版本已支持,通过配置文件进行输出控制
-     * [Rules]
-     *  *.debug=false
-     *  socket.Msg.debug = true
-     */
+            * 此方法Qt官方在Qt5.3以上版本已支持,通过配置文件进行输出控制
+            * [Rules]
+            *  *.debug=false
+            *  socket.Msg.debug = true
+            */
     QByteArray rulesAddr = settingsPath.toLatin1();
     qtlog::setqtLogEnv(rulesAddr);
 
@@ -43,20 +41,29 @@ int main(int argc, char *argv[])
     settings_.beginGroup("LOG");
     /**  日志文件导出根目录 */
     if(!settings_.contains("PATH")){
-        settings_.setValue("PATH","C:/LOG/");
-        logpath = "C:/LOG/";
+        settings_.setValue("PATH",QCoreApplication::applicationDirPath()+"/logs/");
+        logpath = QCoreApplication::applicationDirPath()+"/logs/";
     }
     else{
         logpath = settings_.value("PATH").toString();
     }
-    /** RichText debug模式下支持行号函数信息导出,默认不开启 */
-    if(!settings_.contains("RichText")){
-        settings_.setValue("RichText",false);
-        rich = false;
+    /** FileLine 支持行号信息导出,默认不开启 */
+    if(!settings_.contains("FileLine")){
+        settings_.setValue("FileLine",false);
+        fileline = false;
     }
     else{
-        rich = settings_.value("RichText").toBool();
+        fileline = settings_.value("FileLine").toBool();
     }
+    /** 是否打印到控制台 */
+    if(!settings_.contains("Console")){
+        settings_.setValue("Console",true);
+        showConsole = true;
+    }
+    else{
+        showConsole = settings_.value("Console").toBool();
+    }
+
     /** MaxSize 日志文件大小,超过设定值后创建新日志,单位M */
     if(!settings_.contains("MaxSize")){
         settings_.setValue("MaxSize",100);
@@ -76,8 +83,8 @@ int main(int argc, char *argv[])
 
     /** Category模式,Category模式下根据Category在日志根目录下创建分类目录. 此模式下不同等级日志存放在一个文件下 */
     if(!settings_.contains("Category")){
-        settings_.setValue("Category",false);
-        category = false;
+        settings_.setValue("Category",true);
+        category = true;
     }
     else{
         category = settings_.value("Category").toBool();
@@ -96,8 +103,8 @@ int main(int argc, char *argv[])
     settings_.beginGroup("Dump");
     if(!settings_.contains("PATH")){
         // 添加默认配置信息
-        settings_.setValue("PATH","C:/Dump/");
-        dumppath = "C:/Dump/";
+        settings_.setValue("PATH",QCoreApplication::applicationDirPath()+"/Dumps/");
+        dumppath = QCoreApplication::applicationDirPath()+"/Dumps/";
     }
     else{
         dumppath = settings_.value("PATH").toString();
@@ -105,7 +112,8 @@ int main(int argc, char *argv[])
     settings_.endGroup();
 
     /** set log ini */
-    qtlog::richText = rich;
+    qtlog::setqtLogFileLine(fileline);
+    qtlog::setPrintToConsole(showConsole);
     qtlog::setqtLogMaxSize(maxSize);
     qtlog::setqtLogbuffsecs(secs);
     qtlog::setqtLogShouldflush(ImmediatelyFlush);
@@ -113,6 +121,7 @@ int main(int argc, char *argv[])
     if(category)
         qtlog::setqtCategoryModeLogDestination(logpath);
     else{
+        // 不同等级日志存放到一起
         qtlog::setqtLogDestination(QDEBUG,logpath);
         qtlog::setqtLogDestination(QINFO,logpath);
         qtlog::setqtLogDestination(QWARING,logpath);
@@ -124,6 +133,7 @@ int main(int argc, char *argv[])
     qtlog::setdumpPath(dumppath);
 
     qtlog::qInstallHandlers();
+    qDebug()<<"测试 ";
 
     /** 不配置时默认Category为defult */
     qDebug()<<"log debug";
@@ -136,8 +146,6 @@ int main(int argc, char *argv[])
     qCInfo(Category)<<"Category->socket.Msg log info";
     qCWarning(Category)<<"Category->socket.Msg log warning";
     qCCritical(Category)<<"Category->socket.Msg log error";
-
-
 
     return a.exec();
 }
